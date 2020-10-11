@@ -1,10 +1,12 @@
 #pragma comment(lib, "ws2_32")
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
+#define _CRT_SECURE_NO_WARNINGS
 
 #include <winsock2.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string>
+#include <iostream>
 
 #define BUFSIZE 512
 
@@ -27,11 +29,11 @@ void err_display(const char* msg) {
 		NULL, WSAGetLastError(),
 		MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
 		(LPTSTR)&lpMsgBuf, 0, NULL);
-	printf("[%s] %s", msg, (LPCTSTR)lpMsgBuf);
+	printf("[%s] %s\n", msg, (LPCTSTR)lpMsgBuf);
 	LocalFree(lpMsgBuf);
 }
 
-BOOL GetIPAddr(char* name, IN_ADDR* addr)
+BOOL GetIPAddr(const char* name, IN_ADDR* addr)
 {
 	HOSTENT* ptr = gethostbyname(name);
 	if (ptr == NULL) {
@@ -43,6 +45,18 @@ BOOL GetIPAddr(char* name, IN_ADDR* addr)
 	return TRUE;
 }
 
+
+int GetIPAddrAll(const char* name, char**& addrs) {
+	HOSTENT* ptr = gethostbyname(name);
+	if (ptr == NULL) {
+		err_display("gethostbyname()");
+		return 0;
+	}
+
+	addrs = ptr->h_addr_list;
+	return ptr->h_length;
+}
+
 BOOL GetDomainName(IN_ADDR addr, char* name) {
 	HOSTENT* ptr = gethostbyaddr((char*)&addr,	sizeof(addr), AF_INET);
 	
@@ -52,72 +66,83 @@ BOOL GetDomainName(IN_ADDR addr, char* name) {
 	}
 
 	strcpy(name, ptr->h_name);
-	return FALSE;
+	return TRUE;
 }
 
+int GetDomainAliases(char* name, char**& aliases, int* len) {
+	HOSTENT* ptr = gethostbyname(name);
+	len = 0;
+	if (ptr == NULL) {
+		err_display("gethostbyaddr()");
+		return FALSE;
+	}
+	if (ptr->h_aliases == NULL) {
+		return FALSE;
+	}
+	
+	aliases = ptr->h_aliases;
+	while (*aliases != NULL) {
+		len++;
+		aliases++;
+	}
+
+	return TRUE;
+}
+
+void PrintDomainNameAndAliases(const char* name) {
+	HOSTENT* ptr = gethostbyname(name);
+	if (ptr == NULL) {
+		err_display("gethostbyname()");
+		return;
+	}
+	
+	std::cout << ptr->h_name << std::endl;
+
+	while (*ptr->h_addr_list != NULL)
+	{
+		long int* add = (long int*)*ptr->h_addr_list;
+		IN_ADDR addr;
+		addr.s_addr = *add;
+		printf("%s\n", inet_ntoa(addr));
+		ptr->h_addr_list++;
+	}
+}
+
+//https://dnslytics.com/ip/216.58.197.238 확인
 int main(int argc, char* argv[]) {
-	int retval;
 	WSADATA wsa;
 	if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
 		return -1;
 	}
-
-	SOCKET listen_sock = socket(AF_INET, SOCK_STREAM, 0);
-	if (listen_sock == INVALID_SOCKET)
-		err_quit((char*)"socket()");
-
-	SOCKADDR_IN serveraddr;
-	ZeroMemory(&serveraddr, sizeof(serveraddr));
-	serveraddr.sin_family = AF_INET;
-	serveraddr.sin_port = htons(9000);
-	serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
-	retval = bind(listen_sock, (SOCKADDR*)&serveraddr,
-		sizeof(serveraddr));
-	if (retval == SOCKET_ERROR) {
-		err_quit((char*)"bind()");
-	}
-
-	retval = listen(listen_sock, SOMAXCONN);
-	if (retval == SOCKET_ERROR) {
-		err_quit((char*)"listen()");
-	}
-
-	SOCKET client_sock;
-	SOCKADDR_IN clientaddr;
-	int addrlen;
-	char buf[BUFSIZE + 1];
-	while (1) {
-		addrlen = sizeof(clientaddr);
-		client_sock = accept(listen_sock, (SOCKADDR*)&clientaddr, &addrlen);
-		if (client_sock == INVALID_SOCKET) {
-			err_display((char*)"accept()");
-			continue;
+	IN_ADDR addr;
+	std::string str;
+	std::cin >> str;
+	if (GetIPAddr(str.c_str(), &addr)) {
+		const char* in = str.c_str();
+		char** addrs = NULL;
+		int length = GetIPAddrAll(in, addrs); 
+		//std::cout << "IP 주소 개수 = " << addr_len << std::endl;
+		
+		while (*addrs != NULL) {
+			memcpy(&addr, addrs, length);
+			std::cout << "IP주소 - " << inet_ntoa(addr) << std::endl;
+			addrs++;
 		}
-		printf("\n[TCP 서버] 클라이언트 접속: IP주소 = &s, 포트 번호 = %d\n",
-			inet_ntoa(clientaddr.sin_addr),
-			ntohs(clientaddr.sin_port));
-		while (1) {
-			retval = recv(client_sock, buf, BUFSIZE, 0);
-			if (retval == SOCKET_ERROR) {
-				err_display((char*)"recv()");
-				break;
-			}
-			else if (retval == 0) {
-				break;
-			}
-			else {
-				buf[retval] = '\0';
-				printf("%s", buf);
-			}
+		char name[256];
+		if (GetDomainName(addr, name)) {
+			std::cout << "도메인 이름 - " << name << std::endl;
 		}
 
+		char** aliases = NULL;
+		int len = 0;
+		if (GetDomainAliases((char*)in, aliases, &len)) {
+			std::cout << "도메인 별명 개수 = " << len << std::endl;
+			for (int i = 0; i < len; ++i)
+				std::cout << "별명 이름 - " << aliases[i] << std::endl;
+		}
 	}
-
-	closesocket(client_sock);
-	printf("\n[TCP 서버] 클라이언트 종료: IP주소 = &s, 포트 번호 = %d\n",
-		inet_ntoa(clientaddr.sin_addr),
-		ntohs(clientaddr.sin_port));
-	closesocket(listen_sock);
+	
+	system("pause");
 
 	WSACleanup();
 	return 0;
