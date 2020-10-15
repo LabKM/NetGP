@@ -94,6 +94,7 @@ int main(int argc, char* argv[]) {
 	FILE* fp = fopen(filename, "rb");
 	if (fp == NULL) {
 		perror("파일 입출력 오류");
+		system("pause");
 		return -1;
 	}
 
