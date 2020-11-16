@@ -71,9 +71,10 @@ struct Client {
 	float sendedpersent = 0;
 	int numtotal = 0;
 	int bufsize = 0;
+	ULONGLONG ulong;
 };
 
-CRITICAL_SECTION sc;
+CRITICAL_SECTION cs;
 class ClientManager{
 private:
 	Client** m_client_list;
@@ -81,21 +82,23 @@ private:
 	int m_iMaxClinetNum;
 	
 	ClientManager() {
+		InitializeCriticalSection(&cs);
 		m_iNowClientNum = 0;
 		m_iMaxClinetNum = 10;
 		m_client_list = new Client * [m_iMaxClinetNum];
 	}
 	~ClientManager() {
+		DeleteCriticalSection(&cs);
 		delete[] m_client_list;
 	}
 public:
 	static ClientManager& getInstance() {
 		static ClientManager* __instance = new ClientManager();
-		EnterCriticalSection(&sc);
+		EnterCriticalSection(&cs);
 		return *__instance;
 	}
 	static void freeInstance() {
-		LeaveCriticalSection(&sc);
+		LeaveCriticalSection(&cs);
 	}
 
 	int registerClient(Client* client) {
@@ -131,6 +134,7 @@ public:
 	}
 	void printClinet(int index) {
 		printInfoClient(m_client_list[index]->clientaddr);
+		std::cout << std::endl;
 		std::cout << "ㄴ받을 파일 이름 : " << m_client_list[index]->filename << std::endl;
 		std::cout << "ㄴ파일 수신 " << m_client_list[index]->sendedpersent << "% 진행" << std::endl;
 	}
@@ -213,13 +217,9 @@ DWORD WINAPI recvFile(LPVOID arg){
 			numtotal += retval;
 			float persent = (float)numtotal / (float)totalbytes * 100;
 			if (persent - sendedpersent > 10) {
-				printInfoClient(clientaddr);
-				std::cout << "파일 수신 " << persent << "% 진행" << std::endl;
 				sendedpersent = persent;
 			}
 			else if(numtotal == totalbytes) {
-				printInfoClient(clientaddr);
-				std::cout << "파일 수신 " << persent << "% 진행" << std::endl;
 				break;
 			}
 
@@ -257,7 +257,7 @@ DWORD WINAPI printClient(LPVOID arg) {
 		ClientManager& instance = ClientManager::getInstance();
 		instance.printClinetsAll();
 		ClientManager::freeInstance();
-		Sleep(10);
+		Sleep(1000);
 	}
 }
 
